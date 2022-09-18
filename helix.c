@@ -1,5 +1,12 @@
 #include "helix.h"
 
+short showGun = false;
+short showTargets = false;
+short wireframe = true;
+short strafe = false;
+short strafeLeft = false;
+short strafeRight = false;
+
 // Default states for sprite objects
 // { x, y, visible, animIndex, texture, animTimer }
 const Sprite d_sprites[SPRITES_MAX] =
@@ -50,13 +57,14 @@ const int g_animms = 250;                   // One animation frame duration
 const int c_reloadms = 300;                 // Player gun reload duration
 const int c_reloadAnim = 200;               // Player shot animation duration
 const float c_enemyViewDistance = 15.0f;    // Max distance enemies will chase the player at
-const float c_enemyDamageDistance = 0.6f;   // Enemy meele attack range
+const float c_enemyDamageDistance = 1.0f;   // Enemy meele attack range
 const float c_enemySpeed = 1.0f / 1000;     // Enemy movement speed
 const float c_playerSpeed = 1.5f / 1000;    // Player movement speed
 const float c_playerRotSpeed = 1.0f / 1000; // Player rotation speed
 
 int main()
 {
+    char stat[100];
     // Initialization
     init_stdio();
     video_mode(1);
@@ -81,7 +89,7 @@ int main()
 
             input_update();
             player_update();
-            enemy_update();
+            if (showTargets) enemy_update();
             renderer_update(&g_mainCamera);
             if (g_time - g_startTime < 10000)
                 draw_tutorial();
@@ -90,6 +98,9 @@ int main()
                 break;
             if (g_input.quit)
                 return 0;
+            // print stats
+            sprintf(stat, "FPS:%d,wrfrm:%s,trgts:%s,gun:%s", (1000/(g_time - g_timeOld)), (wireframe?"ON":"OFF"), (showTargets?"ON":"OFF"), (showGun?"ON":"OFF"));
+            draw(5, 10, WHITE, stat);
         }
 
         // Draw game over screen
@@ -273,10 +284,15 @@ void enemy_update()
                 enemy->sprite->y += distY / distToPlayer * c_enemySpeed * (g_time - g_timeOld);
                 enemy->moving = 1;
 
+                char tmp[100];
+                sprintf(tmp, "dist:%f", distToPlayer);
+                draw(10, 20, WHITE, tmp);
+
                 // Damage player if too close
                 if (distToPlayer < c_enemyDamageDistance)
                 {
                     g_gameOverLoss = 1;
+                    draw(10, 20, GREEN, "END");
                 }
             }
             else
@@ -311,6 +327,7 @@ void player_update()
     // Calculate speeds by using frame delta time, this allows for framerate-independent movement
     float moveSpeed = (g_time - g_timeOld) * c_playerSpeed;
     float rotationSpeed = (g_time - g_timeOld) * c_playerRotSpeed;
+    //float rotationSpeed = /*(g_time - g_timeOld)*/ 75.0f * c_playerRotSpeed;
 
     float playerWidth = 0.4f;
 
@@ -339,8 +356,20 @@ void player_update()
             posY -= dirY * moveSpeed;
     }
 
+    if (strafeRight) 
+    {
+        float _dirX, _dirY;
+        float rotCos = cosf(-M_PI_2);
+        float rotSin = sinf(-M_PI_2);
+        _dirX = dirX * rotCos - dirY * rotSin;
+        _dirY = dirX * rotSin + dirY * rotCos;
+        if (d_worldMap[(int)(posX + _dirX * moveSpeed + _dirX * playerWidth)][(int)(posY)] == 0)
+            posX += _dirX * moveSpeed;
+        if (d_worldMap[(int)(posX)][(int)(posY + _dirY * moveSpeed + _dirY * playerWidth)] == 0)
+            posY += _dirY * moveSpeed;
+    }
     // Rotate to the right
-    if (g_input.right)
+    else if (g_input.right)
     {
         // Both camera direction and camera plane must be rotated
         // Rotate vectors by multiplying them with the rotation matrix:
@@ -356,8 +385,21 @@ void player_update()
         planeX = planeX * rotCos - planeY * rotSin;
         planeY = oldPlaneX * rotSin + planeY * rotCos;
     }
+
+    if (strafeLeft)
+    {
+        float _dirX, _dirY;
+        float rotCos = cosf(M_PI_2);
+        float rotSin = sinf(M_PI_2);
+        _dirX = dirX * rotCos - dirY * rotSin;
+        _dirY = dirX * rotSin + dirY * rotCos;
+        if (d_worldMap[(int)(posX + _dirX * moveSpeed + _dirX * playerWidth)][(int)(posY)] == 0)
+            posX += _dirX * moveSpeed;
+        if (d_worldMap[(int)(posX)][(int)(posY + _dirY * moveSpeed + _dirY * playerWidth)] == 0)
+            posY += _dirY * moveSpeed;
+    }
     // Rotate to the left
-    if (g_input.left)
+    else if (g_input.left)
     {
         // Both camera direction and camera plane must be rotated
         float oldDirX = dirX;
@@ -413,13 +455,19 @@ void renderer_update(Camera *camera)
 
     wall_raycaster(camera);
 
-    sort_sprites(g_spriteOrder, g_spriteDistance, camera, SPRITES_MAX);
-    sprite_raycaster(camera);
+    if (showTargets)
+    {
+        sort_sprites(g_spriteOrder, g_spriteDistance, camera, SPRITES_MAX);
+        sprite_raycaster(camera);
+    }
 
-    if (g_time >= g_reloadAnimTimer)
-        draw_bitmap(g_screenBuffer, gun__p, 96, 112, 128, 5);
-    else
-        draw_bitmap(g_screenBuffer, gun2__p, 96, 112, 128, 5);
+    if (showGun)
+    {
+        if (g_time >= g_reloadAnimTimer)
+            draw_bitmap(g_screenBuffer, gun__p, 96, 112, 128, 5);
+        else
+            draw_bitmap(g_screenBuffer, gun2__p, 96, 112, 128, 5);
+    }
 
     transfer_buffer();
 }
@@ -549,9 +597,17 @@ void wall_raycaster(Camera *camera)
         uint8_t color = d_worldMap[mapX][mapY] - 1;
 
         // Draw the vertical stripe
-        for (int y = draw_start; y < draw_end; y++)
+        if (!wireframe)
         {
-            draw_pixel(g_screenBuffer, x, y, color);
+            for (int y = draw_start; y < draw_end; y++)
+            {
+                draw_pixel(g_screenBuffer, x, y, color);
+            }
+        }
+        else 
+        {
+            draw_pixel(g_screenBuffer, x, draw_start, color);
+            draw_pixel(g_screenBuffer, x, draw_end, color);
         }
 
         // Set the Z buffer (depth) for sprite casting
@@ -741,11 +797,29 @@ void input_update()
     int vkp, vkr;
     vkp = is_key_pressed();
     vkr = is_key_released();
+
+    if(vkp == VK_LEFT_ALT)
+    {
+        strafe = true;
+    } else if (vkp == VK_RIGHT_ALT)
+    {
+        strafe = true;
+    }
+    if(vkr == VK_LEFT_ALT)
+    {
+        strafe = false;
+        strafeLeft = strafeRight = false;
+    } else if (vkr == VK_RIGHT_ALT)
+    {
+        strafe = false;
+        strafeLeft = strafeRight = false;
+    }
+
     if ((vkp == 0) && (vkr == 0))
     {
         vkp = g_oldKey;
     }
-    if ((vkr != 0) && (vkr == g_oldKey))
+    if ((vkr != 0) /*&& (vkr == g_oldKey)*/)
     {
         vkp = 0;
         g_oldKey = 0;
@@ -762,14 +836,17 @@ void input_update()
     g_input.shoot = 0;
     g_input.restart = 0;
     g_input.quit = 0;
+    strafeLeft = strafeRight = false;
 
     switch (vkp)
     {
     case VK_LEFT_ARROW:
         g_input.left = 1;
+        if (strafe) strafeLeft = true; else strafeLeft = false;
         break;
     case VK_RIGHT_ARROW:
         g_input.right = 1;
+        if (strafe) strafeRight = true; else strafeRight = false;
         break;
     case VK_UP_ARROW:
         g_input.up = 1;
@@ -785,6 +862,15 @@ void input_update()
         break;
     case VK_ESC:
         g_input.quit = 1;
+        break;
+    case VK_W:
+        wireframe ^= 1;
+        break;
+    case VK_T:
+        showTargets ^= 1;
+        break;
+    case VK_G:
+        showGun ^= 1;
         break;
     default:
         break;
